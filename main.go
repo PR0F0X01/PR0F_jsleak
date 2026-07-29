@@ -50,7 +50,7 @@ var httpClient = &http.Client{
 func request(fullurl string, printStatus bool) string {
 	req, err := http.NewRequest("GET", fullurl, nil)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		return ""
 	}
 
@@ -58,7 +58,7 @@ func request(fullurl string, printStatus bool) string {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		fmt.Println(err)
+		fmt.Fprintln(os.Stderr, err)
 		return ""
 	}
 	defer resp.Body.Close()
@@ -71,7 +71,7 @@ func request(fullurl string, printStatus bool) string {
 	if resp.StatusCode == http.StatusOK {
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Fprintln(os.Stderr, err)
 			return ""
 		}
 		bodyString = string(bodyBytes)
