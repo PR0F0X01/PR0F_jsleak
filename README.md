@@ -1,20 +1,44 @@
-### Description
+# jsleak
 
-I was developing jsleak during most of my free time for my own need.It is easy-to-use command-line tool designed to uncover secrets and links in JavaScript files or source code. The jsleak was inspired by [Linkfinder](https://github.com/GerbenJavado/LinkFinder) and regexes are collected from multiple sources.  
+## Description
 
-### Features:
+**jsleak** is a fast and lightweight command-line tool for discovering **secrets** and **hidden endpoints** in JavaScript files.
 
-- Discover secrets in JS files such as API keys, tokens, and passwords.
-- Identify links in the source code.
-- Complete Url Function
-- Concurrent processing for scanning of multiple Urls
-- Check status code if the url is alive or not
+It supports scanning one or multiple URLs concurrently, extracting JavaScript resources, detecting secrets using customizable YAML regex patterns, discovering hidden endpoints, checking endpoint status codes, and exporting results in a format optimized for large-scale security assessments.
 
-### Latest Update
-Jsleak now supports regex patterns from secrets-patterns-db [https://github.com/mazen160/secrets-patterns-db](https://github.com/mazen160/secrets-patterns-db).
+The project was originally inspired by **LinkFinder**, while the secret detection patterns are compatible with **secrets-patterns-db** and any custom YAML pattern set.
 
-If you want to use your own custom regex patterns, you can place them in a YAML file following the template below. 
-```
+---
+
+## Features
+
+* Detect API keys, access tokens, secrets, credentials, and other sensitive information.
+* Discover hidden endpoints and URLs inside JavaScript.
+* Automatic endpoint resolution (Complete URL mode).
+* Concurrent scanning for high performance.
+* HTTP status code checking.
+* Support for custom YAML regex patterns.
+* Results automatically sorted by:
+
+  * URL
+  * Pattern
+  * Secret Value
+* Automatic output splitting into multiple **Part** files for processing large datasets.
+* Output format optimized for automated security workflows and AI agents.
+
+---
+
+## Latest Update
+
+jsleak now supports regex patterns from **secrets-patterns-db**:
+
+https://github.com/mazen160/secrets-patterns-db
+
+Any compatible YAML pattern file can also be used.
+
+Example:
+
+```yaml
 patterns:
   - pattern:
       name: Amazon MWS Auth Token
@@ -22,97 +46,181 @@ patterns:
       confidence: low
 ```
 
+---
 
-### Installation
-If you are using old version of golang (go 1.15, 1.16) , use the following command to install jsleak.
-```
-go get github.com/channyein1337/jsleak
-```
+## Installation
 
-If you are using latest version of  go (1.17+) , use the following command to install.
+Install the latest version:
 
-```
-go install github.com/channyein1337/jsleak@latest
+```bash
+go install github.com/PR0F0X01/PR0F_jsleak@latest
 ```
 
+---
+## New Options
 
-### Usage
+### Split Output
 
-Choose a YAML file from the secrets-patterns-db. If you’re not sure which one to pick, consider using: [https://raw.githubusercontent.com/mazen160/secrets-patterns-db/refs/heads/master/datasets/trufflehog-v3.yaml](https://raw.githubusercontent.com/mazen160/secrets-patterns-db/refs/heads/master/datasets/trufflehog-v3.yml)
+Use `-p` to specify the maximum number of results written to each Part file.
 
-Run jsleak with Your Selected Regex File
+Default:
+
+```bash
+-p 500
 ```
-echo "http://testphp.vulnweb.com/" | jsleak -t trufflehog-v3.yaml -s
+
+Example:
+
+```bash
+cat urls.txt | jsleak -t trufflehog-v3.yml -s -p 1000
 ```
 
-To display help message
+---
 
+### Output Directory
+
+Use `-o` to specify the output directory.
+
+Default:
+
+```text
+output/
 ```
+
+Example:
+
+```bash
+cat urls.txt | jsleak -t trufflehog-v3.yml -s -o results
+```
+
+Generated structure:
+
+```text
+results/
+└── parts/
+    ├── part-1.txt
+    ├── part-2.txt
+    └── ...
+```
+
+## Usage
+
+Choose a YAML pattern file.
+
+For example:
+
+```text
+https://raw.githubusercontent.com/mazen160/secrets-patterns-db/refs/heads/master/datasets/trufflehog-v3.yml
+```
+
+Run Secret Finder:
+
+```bash
+echo "https://example.com" | jsleak -t trufflehog-v3.yml -s
+```
+
+Display help:
+
+```bash
 jsleak -h
 ```
+- Configurable output splitting using the -p flag.
+- Custom output directory using the -o flag.
 
-![](https://raw.githubusercontent.com/channyein1337/jsleak/main/images/help.png)
+### Secret Finder
 
-Secret Finder
-
-```
-echo http://testphp.vulnweb.com/ | jsleak  -t secret.yaml -s
-```
-
-![](https://raw.githubusercontent.com/channyein1337/jsleak/main/images/secret.png)
-
-
-Link Finder
-
-```
-echo http://testphp.vulnweb.com/ | jsleak -l
+```bash
+echo https://example.com | jsleak -t trufflehog-v3.yml -s
 ```
 
-![](https://raw.githubusercontent.com/channyein1337/jsleak/main/images/linkfinder.png)
+### Link Finder
 
-Complete Url
-
-```
-echo http://testphp.vulnweb.com/ | jsleak -e
+```bash
+echo https://example.com | jsleak -l
 ```
 
-![](https://raw.githubusercontent.com/channyein1337/jsleak/main/images/completeURL.png)
+### Complete URL
 
-Check Status
-
-```
-echo http://testphp.vulnweb.com/ | jsleak -c 20 -k
+```bash
+echo https://example.com | jsleak -e
 ```
 
-![](https://raw.githubusercontent.com/channyein1337/jsleak/main/images/status_code.png)
+### Check Status Code
 
-You can also use multiple flags 
-
-```
-echo http://testphp.vulnweb.com/ | jsleak -c 20 -l -s 
+```bash
+echo https://example.com | jsleak -k
 ```
 
-![](https://raw.githubusercontent.com/channyein1337/jsleak/main/images/multipleFlags.png)
+### Multiple Flags
 
-Running with Urls
-
+```bash
+echo https://example.com | jsleak -l -s
 ```
+
+### Scan Multiple URLs
+
+```bash
 cat urls.txt | jsleak -l -s -c 30
 ```
 
-![](https://raw.githubusercontent.com/channyein1337/jsleak/main/images/file.png)
+---
 
-### To Do
+## Secret Output Format
 
-- Scan secret on completeURL with 200 response.
-- Add Version flag.
-- Support scanning local files.
-- Support scanning apk files.
-- Update Regex.
-- Support mulitple user agents.
-- Support color output
+Secret results are automatically normalized and sorted:
 
+```text
+[https://example.com/app.js] [AWS Access Key] [AKIA...]
+[https://example.com/app.js] [GitHub Token] [ghp_xxxxx]
+[https://example.com/vendor.js] [Stripe Secret Key] [sk_live_xxxxx]
+```
 
-### Credit and thanks to all the following resources
-- https://github.com/GerbenJavado/LinkFinder
-- https://github.com/0xsha/GoLinkFinder
+Results are sorted by:
+
+1. URL
+2. Pattern Name
+3. Secret Value
+
+making them easier to review manually or process automatically.
+
+---
+
+## Output Splitting
+
+Large outputs can be automatically split into multiple files.
+
+Example:
+
+```text
+parts/
+├── part-1.txt
+├── part-2.txt
+├── part-3.txt
+└── ...
+```
+
+Each file contains the configured maximum number of results, making them ideal for distributed processing and automation pipelines.
+
+---
+
+## To Do
+
+* Scan secrets from discovered JavaScript endpoints automatically.
+* Support local JavaScript file scanning.
+* Support APK analysis.
+* Improve endpoint discovery.
+* Update regex database.
+* Multiple User-Agent support.
+* Colored output.
+* JSON output mode.
+* HTML report generation.
+
+---
+
+## Credits
+
+Special thanks to the following projects:
+
+* https://github.com/GerbenJavado/LinkFinder
+* https://github.com/0xsha/GoLinkFinder
+* https://github.com/mazen160/secrets-patterns-db
