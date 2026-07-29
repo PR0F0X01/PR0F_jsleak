@@ -167,6 +167,25 @@ func sortResults(res []secretResult) {
 	})
 }
 
+// dedupeResults يحذف النتائج المكررة (نفس URL + Pattern + Value).
+// يجب استدعاؤها بعد sortResults مباشرة، لأن الترتيب يخلي
+// أي عناصر مكررة متجاورة، فالحذف بيبقى بعملية مرور واحدة (O(n)).
+func dedupeResults(res []secretResult) []secretResult {
+	if len(res) == 0 {
+		return res
+	}
+
+	deduped := res[:1]
+	for i := 1; i < len(res); i++ {
+		last := deduped[len(deduped)-1]
+		if res[i] == last {
+			continue
+		}
+		deduped = append(deduped, res[i])
+	}
+	return deduped
+}
+
 // writeParts يقسم النتائج (بعد ترتيبها) إلى ملفات part-N.txt
 // داخل outputDir/parts، بحد أقصى partSize سطر لكل ملف.
 func writeParts(res []secretResult, partSize int, outputDir string) error {
@@ -283,6 +302,7 @@ func main() {
 	// وليس أثناء عملية الـ scanning.
 	if enableSecretFinder && len(results) > 0 {
 		sortResults(results)
+		results = dedupeResults(results)
 
 		if err := writeParts(results, partSize, outputDir); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing parts: %v\n", err)
