@@ -178,8 +178,7 @@ func writeParts(res []secretResult, partSize int, outputDir string) error {
 		partSize = 500
 	}
 
-	partsDir := filepath.Join(outputDir, "parts")
-	if err := os.MkdirAll(partsDir, 0755); err != nil {
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return err
 	}
 
@@ -191,7 +190,7 @@ func writeParts(res []secretResult, partSize int, outputDir string) error {
 		}
 		chunk := res[i:end]
 
-		fileName := filepath.Join(partsDir, fmt.Sprintf("part-%d.txt", partNum))
+		fileName := filepath.Join(outputDir, fmt.Sprintf("part-%d.txt", partNum))
 		f, err := os.Create(fileName)
 		if err != nil {
 			return err
