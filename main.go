@@ -375,56 +375,10 @@ func dedupeResults(res []secretResult) []secretResult {
 	return deduped
 }
 
-// writeParts يقسم النتائج (بعد ترتيبها) إلى ملفات part-N.txt
-// داخل outputDir/parts، بحد أقصى partSize سطر لكل ملف.
-func writeParts(res []secretResult, partSize int, outputDir string) error {
-	if len(res) == 0 {
-		return nil
-	}
-
-	if partSize <= 0 {
-		partSize = 500
-	}
-
-	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return err
-	}
-
-	partNum := 1
-	for i := 0; i < len(res); i += partSize {
-		end := i + partSize
-		if end > len(res) {
-			end = len(res)
-		}
-		chunk := res[i:end]
-
-		fileName := filepath.Join(outputDir, fmt.Sprintf("part-%d.txt", partNum))
-		f, err := os.Create(fileName)
-		if err != nil {
-			return err
-		}
-
-		w := bufio.NewWriter(f)
-		for _, r := range chunk {
-			fmt.Fprintf(w, "[%s] [%s] [%s]\n", r.URL, r.Pattern, r.Value)
-		}
-		if err := w.Flush(); err != nil {
-			f.Close()
-			return err
-		}
-		f.Close()
-
-		partNum++
-	}
-
-	return nil
-}
-
 func main() {
 	var concurrency int
 	var enableLinkFinder, completeURL, checkStatus, enableSecretFinder bool
 	var yamlFilePath string
-	var partSize int
 	var outputDir string
 	var maxURLsPerChunk int
 	var entropyThreshold float64
@@ -435,9 +389,8 @@ func main() {
 	flag.BoolVar(&enableSecretFinder, "s", false, "Enable secretFinder")
 	flag.IntVar(&concurrency, "c", 10, "Number of concurrent workers")
 	flag.StringVar(&yamlFilePath, "t", "", "Path to YAML file containing regex patterns")
-	flag.IntVar(&partSize, "p", 500, "Max number of lines per output part file")
-	flag.StringVar(&outputDir, "o", "output", "Output directory for parts and JSON chunks")
-	flag.IntVar(&maxURLsPerChunk, "max-urls-per-chunk", 100, "Max number of URLs per JSON chunk file")
+	flag.StringVar(&outputDir, "o", "output", "Output directory for JSON chunks")
+	flag.IntVar(&maxURLsPerChunk, "max-urls-per-chunk", 100, "Max number of URLs per JSON chunk file (chunk_NNN.json)")
 	flag.Float64Var(&entropyThreshold, "entropy-threshold", 3.5, "Entropy threshold used to mark candidates as HIGH/LOW (candidates are never discarded)")
 	flag.Parse()
 
@@ -497,17 +450,10 @@ func main() {
 		sortResults(results)
 		results = dedupeResults(results)
 
-		// الإخراج القديم (flat-text parts) بيفضل موجود عشان أي مستهلك
-		// حالي في الـ pipeline معتمد عليه (backward compatibility).
-		if err := writeParts(results, partSize, outputDir); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing parts: %v\n", err)
-			os.Exit(1)
-		}
-
-		// الإخراج الجديد: JSON منظم ومجمّع حسب الـ URL، مقسّم لـ chunks،
-		// بيتكتب في نفس outputDir (من غير subfolder تاني)، وده اللي
-		// هيبقى الـ input المباشر لمرحلة الـ skill dispatch / sub-agents
-		// الخاصة بالـ secrets exploitation.
+		// الإخراج الوحيد دلوقتي: JSON منظم ومجمّع حسب الـ URL، مقسّم
+		// لـ chunks حسب --max-urls-per-chunk، وده اللي هيبقى الـ input
+		// المباشر لمرحلة الـ skill dispatch / sub-agents الخاصة
+		// بالـ secrets exploitation.
 		structured := buildStructuredOutput(results, entropyThreshold)
 		if err := writeJSONChunks(structured, maxURLsPerChunk, outputDir, "PR0F_jsleak"); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing JSON chunks: %v\n", err)
