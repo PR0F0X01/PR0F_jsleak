@@ -292,15 +292,18 @@ func buildStructuredOutput(res []secretResult, entropyThreshold float64) []urlEn
 
 // splitByEntropy بتقسم كل url entry لجزئين: candidates بحالة HIGH
 // وcandidates بحالة LOW، وبتبني url entries منفصلة لكل نوع.
-// الـ secret_id بيفضل زي ما اتولّد أصلًا (مش بيتعاد ترقيمه)، عشان
-// التتبّع بين الملفين يفضل صحيح.
+// كل ملف ناتج (HIGH أو LOW) مستقل تمامًا عن التاني: الـ secret_id
+// بيتعاد ترقيمه من جديد بشكل متصل (S-001, S-002, ...) جوه كل ملف
+// لوحده، من غير أي فجوات ومن غير أي علاقة بترقيم الملف التاني.
 func splitByEntropy(entries []urlEntryJSON) (highEntries, lowEntries []urlEntryJSON) {
 	for _, e := range entries {
 		var highCandidates, lowCandidates []candidateJSON
 		for _, c := range e.Candidates {
 			if c.EntropyStatus == "HIGH" {
+				c.SecretID = fmt.Sprintf("S-%03d", len(highCandidates)+1)
 				highCandidates = append(highCandidates, c)
 			} else {
+				c.SecretID = fmt.Sprintf("S-%03d", len(lowCandidates)+1)
 				lowCandidates = append(lowCandidates, c)
 			}
 		}
@@ -454,7 +457,7 @@ func main() {
 	flag.BoolVar(&completeURL, "e", false, "Complete scope URL or not")
 	flag.BoolVar(&checkStatus, "k", false, "Check status codes for found links")
 	flag.BoolVar(&enableSecretFinder, "s", false, "Enable secretFinder")
-	flag.IntVar(&concurrency, "c", 100, "Number of concurrent workers")
+	flag.IntVar(&concurrency, "c", 10, "Number of concurrent workers")
 	flag.StringVar(&yamlFilePath, "t", "", "Path to YAML file containing regex patterns")
 	flag.StringVar(&outputDir, "o", "output", "Output directory for JSON chunks")
 	flag.IntVar(&maxURLsPerChunk, "max-urls-per-chunk", 100, "Max number of URLs per JSON chunk file (chunk_NNN.json)")
