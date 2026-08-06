@@ -454,7 +454,7 @@ func main() {
 	flag.BoolVar(&completeURL, "e", false, "Complete scope URL or not")
 	flag.BoolVar(&checkStatus, "k", false, "Check status codes for found links")
 	flag.BoolVar(&enableSecretFinder, "s", false, "Enable secretFinder")
-	flag.IntVar(&concurrency, "c", 10, "Number of concurrent workers")
+	flag.IntVar(&concurrency, "c", 100, "Number of concurrent workers")
 	flag.StringVar(&yamlFilePath, "t", "", "Path to YAML file containing regex patterns")
 	flag.StringVar(&outputDir, "o", "output", "Output directory for JSON chunks")
 	flag.IntVar(&maxURLsPerChunk, "max-urls-per-chunk", 100, "Max number of URLs per JSON chunk file (chunk_NNN.json)")
