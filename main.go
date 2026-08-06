@@ -172,6 +172,57 @@ func loadPatternsFromYAML(filePath string) (*yamlPatterns, error) {
 	return &yp, nil
 }
 
+// legacyLineRegex بيحلل سطر بالصيغة القديمة:
+// [+] Found [Pattern Name] [Value] [URL]
+// الـ URL محدد إنه لازم يبدأ بـ http:// أو https:// عشان نقدر
+// نميّزه بثقة عن أي أقواس تانية جوه الـ Value نفسه.
+var legacyLineRegex = regexp.MustCompile(`^\[\+\]\s*Found\s*\[([^\]]+)\]\s*\[(.+)\]\s*\[(https?://[^\]]+)\]\s*$`)
+
+// parseLegacyFile بيقرأ ملف نتائج قديم (بالصيغة النصية القديمة
+// [+] Found [Pattern] [Value] [URL]) ويحوّله لنفس شكل secretResult
+// اللي باقي الـ pipeline (sort/dedupe/entropy/JSON chunks) شغالة عليه.
+// أي سطر مش متطابق مع الصيغة بيتسجّل تحذير على stderr ويتخطّى، من
+// غير ما يوقف باقي العملية.
+func parseLegacyFile(path string) ([]secretResult, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	var parsed []secretResult
+
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
+
+	lineNum := 0
+	for sc.Scan() {
+		lineNum++
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+
+		m := legacyLineRegex.FindStringSubmatch(line)
+		if m == nil {
+			fmt.Fprintf(os.Stderr, "Warning: skipping unrecognized line %d in %s\n", lineNum, path)
+			continue
+		}
+
+		parsed = append(parsed, secretResult{
+			URL:     m[3],
+			Pattern: m[1],
+			Value:   m[2],
+			Context: "",
+		})
+	}
+	if err := sc.Err(); err != nil {
+		return parsed, err
+	}
+
+	return parsed, nil
+}
+
 // ---- Structured JSON output types (preprocessing stage for skill dispatch) ----
 
 type candidateJSON struct {
@@ -452,6 +503,7 @@ func main() {
 	var outputDir string
 	var maxURLsPerChunk int
 	var entropyThreshold float64
+	var fromFile string
 
 	flag.BoolVar(&enableLinkFinder, "l", false, "Enable linkFinder")
 	flag.BoolVar(&completeURL, "e", false, "Complete scope URL or not")
@@ -462,61 +514,75 @@ func main() {
 	flag.StringVar(&outputDir, "o", "output", "Output directory for JSON chunks")
 	flag.IntVar(&maxURLsPerChunk, "max-urls-per-chunk", 100, "Max number of URLs per JSON chunk file (chunk_NNN.json)")
 	flag.Float64Var(&entropyThreshold, "entropy-threshold", 3.5, "Entropy threshold used to mark candidates as HIGH/LOW (candidates are never discarded)")
+	flag.StringVar(&fromFile, "from-file", "", "Path to a legacy flat-text results file ([+] Found [Pattern] [Value] [URL] per line) to import instead of live scanning")
 	flag.Parse()
 
-	var patterns []patternDef
-	if yamlFilePath != "" {
-		loadedPatterns, err := loadPatternsFromYAML(yamlFilePath)
+	if fromFile != "" {
+		// ---- مسار الاستيراد من ملف قديم (من غير أي HTTP scanning) ----
+		parsed, err := parseLegacyFile(fromFile)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error loading YAML patterns: %v\n", err)
+			fmt.Fprintf(os.Stderr, "Error reading --from-file: %v\n", err)
 			os.Exit(1)
 		}
-		for _, pw := range loadedPatterns.Patterns {
-			patterns = append(patterns, pw.Pattern)
+		results = append(results, parsed...)
+	} else {
+		// ---- مسار الـ scanning العادي (زي ما هو من غير أي تغيير) ----
+		var patterns []patternDef
+		if yamlFilePath != "" {
+			loadedPatterns, err := loadPatternsFromYAML(yamlFilePath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error loading YAML patterns: %v\n", err)
+				os.Exit(1)
+			}
+			for _, pw := range loadedPatterns.Patterns {
+				patterns = append(patterns, pw.Pattern)
+			}
 		}
-	}
 
-	urls := make(chan string, concurrency)
-	go func() {
-		sc := bufio.NewScanner(os.Stdin)
-		for sc.Scan() {
-			urls <- sc.Text()
-		}
-		close(urls)
-		if err := sc.Err(); err != nil {
-			fmt.Fprintf(os.Stderr, "failed to read input: %s\n", err)
-		}
-	}()
-
-	wg := sync.WaitGroup{}
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
+		urls := make(chan string, concurrency)
 		go func() {
-			defer wg.Done()
-			for vUrl := range urls {
-				res := request(vUrl, false)
-
-				if enableSecretFinder && len(patterns) > 0 {
-					regexGrep(res, vUrl, patterns)
-				}
-
-				if enableLinkFinder {
-					linkFinder(res, vUrl, false, false)
-				}
-				if completeURL {
-					linkFinder(res, vUrl, true, false)
-				}
-				if checkStatus {
-					linkFinder(res, vUrl, true, true)
-				}
+			sc := bufio.NewScanner(os.Stdin)
+			for sc.Scan() {
+				urls <- sc.Text()
+			}
+			close(urls)
+			if err := sc.Err(); err != nil {
+				fmt.Fprintf(os.Stderr, "failed to read input: %s\n", err)
 			}
 		}()
-	}
-	wg.Wait()
 
-	// الترتيب والتقسيم يتمّان فقط بعد انتهاء جميع الـ workers،
-	// وليس أثناء عملية الـ scanning.
-	if enableSecretFinder && len(results) > 0 {
+		wg := sync.WaitGroup{}
+		for i := 0; i < concurrency; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for vUrl := range urls {
+					res := request(vUrl, false)
+
+					if enableSecretFinder && len(patterns) > 0 {
+						regexGrep(res, vUrl, patterns)
+					}
+
+					if enableLinkFinder {
+						linkFinder(res, vUrl, false, false)
+					}
+					if completeURL {
+						linkFinder(res, vUrl, true, false)
+					}
+					if checkStatus {
+						linkFinder(res, vUrl, true, true)
+					}
+				}
+			}()
+		}
+		wg.Wait()
+	}
+
+	// الترتيب والتقسيم يتمّان فقط بعد انتهاء جميع الـ workers (أو بعد
+	// انتهاء قراءة --from-file)، وليس أثناء عملية الـ scanning.
+	// لو --from-file متحدد، بنعتبر إن الهدف من الأصل هو معالجة
+	// secrets حتى لو -s مش متحدد صراحة.
+	if (enableSecretFinder || fromFile != "") && len(results) > 0 {
 		sortResults(results)
 		results = dedupeResults(results)
 
