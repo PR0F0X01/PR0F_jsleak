@@ -290,6 +290,73 @@ func buildStructuredOutput(res []secretResult, entropyThreshold float64) []urlEn
 	return entries
 }
 
+// splitByEntropy بتقسم كل url entry لجزئين: candidates بحالة HIGH
+// وcandidates بحالة LOW، وبتبني url entries منفصلة لكل نوع.
+// الـ secret_id بيفضل زي ما اتولّد أصلًا (مش بيتعاد ترقيمه)، عشان
+// التتبّع بين الملفين يفضل صحيح.
+func splitByEntropy(entries []urlEntryJSON) (highEntries, lowEntries []urlEntryJSON) {
+	for _, e := range entries {
+		var highCandidates, lowCandidates []candidateJSON
+		for _, c := range e.Candidates {
+			if c.EntropyStatus == "HIGH" {
+				highCandidates = append(highCandidates, c)
+			} else {
+				lowCandidates = append(lowCandidates, c)
+			}
+		}
+
+		if len(highCandidates) > 0 {
+			highEntries = append(highEntries, urlEntryJSON{
+				URLID:      e.URLID,
+				SourceURL:  e.SourceURL,
+				Status:     e.Status,
+				Candidates: highCandidates,
+			})
+		}
+		if len(lowCandidates) > 0 {
+			lowEntries = append(lowEntries, urlEntryJSON{
+				URLID:      e.URLID,
+				SourceURL:  e.SourceURL,
+				Status:     e.Status,
+				Candidates: lowCandidates,
+			})
+		}
+	}
+	return highEntries, lowEntries
+}
+
+// writeLowEntropyFile بيكتب كل الـ LOW entropy candidates في ملف
+// JSON واحد لوحده (من غير تقسيم لـ chunks)، بنفس هيكل _meta/urls.
+func writeLowEntropyFile(entries []urlEntryJSON, outputDir, generatedBy string) error {
+	if len(entries) == 0 {
+		return nil
+	}
+
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+
+	chunk := chunkJSON{
+		Meta: metaJSON{
+			Version:     1,
+			GeneratedBy: generatedBy,
+			LastUpdated: time.Now().UTC().Format(time.RFC3339),
+		},
+		URLs: entries,
+	}
+
+	fileName := filepath.Join(outputDir, "low_entropy_candidates.json")
+	f, err := os.Create(fileName)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	enc := json.NewEncoder(f)
+	enc.SetIndent("", "  ")
+	return enc.Encode(chunk)
+}
+
 // writeJSONChunks يقسم url entries إلى ملفات chunk_NNN.json،
 // بحد أقصى maxURLsPerChunk عنصر URL لكل ملف (وليس عدد أسطر/candidates).
 func writeJSONChunks(entries []urlEntryJSON, maxURLsPerChunk int, outputDir, generatedBy string) error {
@@ -450,13 +517,18 @@ func main() {
 		sortResults(results)
 		results = dedupeResults(results)
 
-		// الإخراج الوحيد دلوقتي: JSON منظم ومجمّع حسب الـ URL، مقسّم
-		// لـ chunks حسب --max-urls-per-chunk، وده اللي هيبقى الـ input
-		// المباشر لمرحلة الـ skill dispatch / sub-agents الخاصة
-		// بالـ secrets exploitation.
+		// الإخراج: بنفصل الـ candidates حسب حالة الـ entropy.
+		// HIGH → chunk_NNN.json (مقسّمة بـ --max-urls-per-chunk).
+		// LOW  → ملف واحد منفصل low_entropy_candidates.json.
 		structured := buildStructuredOutput(results, entropyThreshold)
-		if err := writeJSONChunks(structured, maxURLsPerChunk, outputDir, "PR0F_jsleak"); err != nil {
+		highEntries, lowEntries := splitByEntropy(structured)
+
+		if err := writeJSONChunks(highEntries, maxURLsPerChunk, outputDir, "PR0F_jsleak"); err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing JSON chunks: %v\n", err)
+			os.Exit(1)
+		}
+		if err := writeLowEntropyFile(lowEntries, outputDir, "PR0F_jsleak"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing low entropy file: %v\n", err)
 			os.Exit(1)
 		}
 	}
